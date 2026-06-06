@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+_clean.py
+_refactor.py
+
+# local-only technical notes (references the source firmware — keep private)
+IMPLEMENTATION_PLAN.md
