@@ -147,6 +147,7 @@ FLOW_CALIBRATE TOOL={initial_tool} KEEP_HOT=1 SAVE=0
 | First run after a tool change is way off | use `RUNS=3` (median) |
 | `[cs1237] ... is not a valid config section` | copy `cs1237.py` and restart Klipper |
 | Popup doesn't open | make sure `[respond]` is in your config |
+| `G28` shuts down: `CS1237Sensor ... has no attribute _cmd_reset` | your Klipper build already ships its own `cs1237.py` (shared with the bed probe). Update to the latest release and re-run `install.sh` — it keeps the build's module and adapts to it. |
 
 ---
 

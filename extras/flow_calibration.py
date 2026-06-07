@@ -204,6 +204,66 @@ def robust_fit(X, Y):
     return p
 
 
+# ── Sensor adapter ─────────────────────────────────────────────────────
+# Some Klipper builds (the tunnelled Kobra S1 fork) already ship their own
+# [cs1237] module — it is also used by their bed probe, so this plugin must
+# NOT replace it. That module exposes the same sensor under different method
+# names. This adapter wraps such a foreign object and presents the small
+# interface the calibration algorithm uses, so the algorithm code stays
+# unchanged regardless of which [cs1237] module is loaded.
+class _ForeignCS1237Adapter:
+    def __init__(self, cs, printer):
+        self._cs = cs
+        self._printer = printer
+        self.stock_calibration = self.has_stock_calibration(cs)
+
+    @staticmethod
+    def matches(cs):
+        # A foreign module that provides the calibration data call under its
+        # own name (and lacks this plugin's query_calibration_val()).
+        return (not hasattr(cs, 'query_calibration_val')
+                and hasattr(cs, '_stock_cs1237_calibration_data_process'))
+
+    @staticmethod
+    def has_stock_calibration(cs):
+        # The foreign module only wires up the calibration commands when the
+        # toolhead MCU actually exposes them (stock Anycubic firmware).
+        caps = getattr(cs, 'capabilities', None)
+        if caps is not None:
+            return 'stock_calibration' in caps
+        return hasattr(cs, '_cmd_calibration_data')
+
+    def _dwell(self, ms):
+        gcode = self._printer.lookup_object('gcode')
+        gcode.run_script_from_command("G4 P%d" % ms)
+
+    def enable(self):
+        self._cs._enable_cs1237(1)
+        self._dwell(500)          # match this plugin's sensor settle time
+
+    def disable(self):
+        self._cs._enable_cs1237(0)
+
+    def calibration(self, cali_state, speed_state):
+        self._cs._stock_cs1237_calibration_phase(cali_state, speed_state)
+
+    def query_calibration_val(self):
+        # Foreign module raises on timeout; convert to this plugin's None
+        # sentinel so the algorithm's existing handling applies.
+        try:
+            d = self._cs._stock_cs1237_calibration_data_process()
+        except Exception:
+            return None, None, None
+        return (d.get('BlockPreVal'), d.get('TargetVal'), d.get('RealVal'))
+
+    def query_diff(self):
+        try:
+            d = self._cs.cs1237_diff_process()
+        except Exception:
+            return None, None
+        return d.get('diff'), d.get('raw')
+
+
 # ── Flow Calibration module ────────────────────────────────────────────
 class FlowCalibration:
     def __init__(self, config):
@@ -365,8 +425,25 @@ class FlowCalibration:
                 "(4 speeds x 5 temps), got %d rows" % len(rows))
         return rows
 
+    def _resolve_cs1237(self):
+        # Look up the [cs1237] object and, if it is a foreign module (e.g. the
+        # Kobra S1 fork's own cs1237.py, shared with its bed probe), wrap it in
+        # an adapter so the algorithm can use it without changes.
+        cs = self.printer.lookup_object('cs1237', None)
+        if cs is not None and _ForeignCS1237Adapter.matches(cs):
+            if not _ForeignCS1237Adapter.has_stock_calibration(cs):
+                logger.warning(
+                    "FlowCalibration: the installed [cs1237] module has no "
+                    "stock calibration commands — the toolhead MCU firmware "
+                    "does not expose them. FLOW_CALIBRATE needs the original "
+                    "Anycubic nozzle-MCU firmware.")
+            cs = _ForeignCS1237Adapter(cs, self.printer)
+            logger.info("FlowCalibration: using foreign [cs1237] module "
+                        "via adapter")
+        return cs
+
     def _handle_ready(self):
-        self.cs1237 = self.printer.lookup_object('cs1237', None)
+        self.cs1237 = self._resolve_cs1237()
         if self.cs1237 is None:
             logger.warning("FlowCalibration: no [cs1237] section found — "
                            "FLOW_CALIBRATE will not work until it is added")
@@ -919,9 +996,16 @@ class FlowCalibration:
         # Always close any open selection popup first.
         self._close_popup()
         if self.cs1237 is None:
-            self.cs1237 = self.printer.lookup_object('cs1237', None)
+            self.cs1237 = self._resolve_cs1237()
         if self.cs1237 is None:
             raise gcmd.error("Flow cal: [cs1237] section not configured")
+        if (isinstance(self.cs1237, _ForeignCS1237Adapter)
+                and not self.cs1237.stock_calibration):
+            raise gcmd.error(
+                "Flow cal: the installed [cs1237] module has no stock "
+                "calibration commands. This needs the original Anycubic "
+                "nozzle-MCU firmware (the open-source toolhead firmware does "
+                "not expose them).")
 
         tool = gcmd.get_int('TOOL', None)
         nozzle_d = gcmd.get_float('NOZZLE_DIAMETER',
