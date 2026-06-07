@@ -48,7 +48,7 @@ filament temperature from the ACE), and works without ACE too.
 
 ```bash
 cd ~
-git clone https://github.com/<your-user>/flow_calibration.git
+git clone https://github.com/Jupsi/flow_calibration.git
 cd flow_calibration
 bash install.sh
 ```
