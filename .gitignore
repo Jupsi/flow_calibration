@@ -4,5 +4,5 @@ __pycache__/
 _clean.py
 _refactor.py
 
-# local-only technical notes (references the source firmware — keep private)
+# local-only technical notes
 IMPLEMENTATION_PLAN.md

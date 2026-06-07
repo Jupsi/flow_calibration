@@ -586,8 +586,8 @@ class FlowCalibration:
 
     def _show_slot_popup(self, slots, extra_args=""):
         self._prompt("action:prompt_begin Flow Calibration")
-        self._prompt("action:prompt_text Slot fuer die Flow-Kalibrierung "
-                     "waehlen:")
+        self._prompt("action:prompt_text Select a slot for flow "
+                     "calibration:")
         for s in slots:
             label = ("T%s" % s['tool'])
             if s['material']:
@@ -598,7 +598,7 @@ class FlowCalibration:
             # Inner cancel/cmd uses no nested double-quotes (MSG=... unquoted).
             self._prompt("action:prompt_button %s|FLOW_CALIBRATE TOOL=%s%s"
                          "|primary" % (label, s['tool'], extra_args))
-        self._prompt("action:prompt_footer_button Abbrechen|"
+        self._prompt("action:prompt_footer_button Cancel|"
                      "RESPOND TYPE=command MSG=action:prompt_end|error")
         self._prompt("action:prompt_show")
 
