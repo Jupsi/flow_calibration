@@ -8,6 +8,14 @@ that's already in your toolhead.
 Integrates with the **ACEPRO** multi-material plugin (slot picker, auto tool load,
 filament temperature from the ACE), and works without ACE too.
 
+> [!IMPORTANT]
+> **Requires the original (stock) Anycubic nozzle-MCU firmware.** The calibration
+> relies on the CS1237 pressure-measurement commands built into Anycubic's stock
+> toolhead firmware. The open-source nozzle firmware
+> [Kobra-S1/klipper-kobra-s1](https://github.com/Kobra-S1/klipper-kobra-s1)
+> **does not** include these commands , so this
+> plugin will **not** work on it. Stay on the stock nozzle-MCU firmware if you want to use this plugin.
+
 ---
 
 ## ✨ Features
