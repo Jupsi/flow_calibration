@@ -447,6 +447,65 @@ class FlowCalibration:
         if self.cs1237 is None:
             logger.warning("FlowCalibration: no [cs1237] section found — "
                            "FLOW_CALIBRATE will not work until it is added")
+        self._maybe_register_query_sensor()
+
+    def _maybe_register_query_sensor(self):
+        # QUERY_FLOW_SENSOR is normally registered by this plugin's own
+        # extras/cs1237.py. When a FOREIGN [cs1237] module is loaded instead
+        # (the Kobra S1 fork's own cs1237.py, shared with its bed probe), our
+        # module is never imported, so the diagnostic command would be missing —
+        # exactly the tunnel/foreign setup where it is most useful. Register a
+        # generic version here (routed through the resolved sensor / adapter),
+        # but only if nothing else already provides the command.
+        handlers = getattr(self.gcode, 'ready_gcode_handlers', None)
+        if handlers is not None and 'QUERY_FLOW_SENSOR' in handlers:
+            return  # native cs1237.py already registered the richer version
+        try:
+            self.gcode.register_command(
+                "QUERY_FLOW_SENSOR", self.cmd_QUERY_FLOW_SENSOR,
+                desc="Read the CS1237 nozzle sensor once "
+                     "(diagnostic, no motion/heating)")
+        except Exception as e:
+            logger.info("FlowCalibration: QUERY_FLOW_SENSOR not registered "
+                        "(already provided?): %s", e)
+
+    cmd_QUERY_FLOW_SENSOR_help = (
+        "Read the CS1237 nozzle sensor once (diagnostic, no motion/heating)")
+
+    def cmd_QUERY_FLOW_SENSOR(self, gcmd):
+        # Generic diagnostic that works with both the native [cs1237] module and
+        # a foreign one via the adapter — both expose enable/disable/query_diff.
+        cs = self.cs1237
+        if cs is None:
+            cs = self.cs1237 = self._resolve_cs1237()
+        if cs is None:
+            raise gcmd.error(
+                "QUERY_FLOW_SENSOR: no [cs1237] section configured — add the "
+                "sensor (or the foreign module) and restart Klipper.")
+        cs.enable()
+        ok = False
+        try:
+            # First read after enable can be a settling transient — discard it.
+            cs.query_diff()
+            for i in range(4):
+                diff, raw = cs.query_diff()
+                if raw is None:
+                    gcmd.respond_info("sample %d: NO RESPONSE (timeout)"
+                                      % (i + 1))
+                else:
+                    ok = True
+                    gcmd.respond_info(
+                        "sample %d: diff=%d raw=%d" % (i + 1, diff, raw))
+                self._run("G4 P200")
+        finally:
+            cs.disable()
+        if not ok:
+            raise gcmd.error(
+                "CS1237: NO RESPONSE — check the nozzle_mcu socat tunnel and "
+                "that the nozzle_mcu exposes the CS1237 commands.")
+        gcmd.respond_info(
+            "CS1237 OK: sensor responding. 'raw' is the live ADC value "
+            "(negative is normal); 'diff' stays 0 until a calibration phase.")
 
     def get_status(self, eventtime):
         return {
@@ -676,6 +735,20 @@ class FlowCalibration:
                 self._run(self.cut_tip_macro)
                 self._run(self.ace_full_unload_macro)
                 self._run(change)
+        # Verify the change actually completed. ACE_CHANGE_TOOL catches internal
+        # failures (feeder jam, failed unload, ...), logs them and returns
+        # WITHOUT raising — leaving the old tool loaded. Without this check we
+        # would heat, prime and sweep against a wrong/empty/jammed load and only
+        # reject the garbage afterwards. The change is synchronous, so the ACE
+        # current index reflects the final state by the time we get here.
+        if self.printer.lookup_object(self.ace_object_name, None) is not None:
+            now = self._ace_current_index()
+            if now != tool:
+                raise self.cmderr(
+                    "Flow cal: ACE tool change to T%d did not complete (ACE is "
+                    "still on T%s). Aborting before measuring — check the "
+                    "feeder/spool and that the slot is loaded, then retry."
+                    % (tool, now))
 
     # ------------------------------------------------------------------
     # Rack (no-ACE) preparation
