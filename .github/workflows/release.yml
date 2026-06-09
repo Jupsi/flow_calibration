@@ -16,3 +16,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # SemVer pre-release tags carry a hyphen suffix (e.g. v0.0.4-rc1):
+          # mark them as a pre-release and keep the "Latest" badge on stable.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
